@@ -1,0 +1,17 @@
+# Check tooling, installed by CI
+node_modules/
+package-lock.json
+
+# Build output lives one level up, in D:/Claude/dist
+dist/
+*.zip
+
+# Source art, not shipped - the addon loads .blp
+*.png
+*.psd
+*.xcf
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
