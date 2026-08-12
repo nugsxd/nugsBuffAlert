@@ -22,11 +22,37 @@
 --
 -- Three ways to get an answer, tried in order of how much they can be trusted:
 --
---   1. GetUnitAuraBySpellID    exact, and the only one that survives 12.1
+--   1. GetUnitAuraBySpellID    exact, and it does survive 12.1
 --   2. the Cooldown Manager    a bridge, covers procs the first path cannot see
 --   3. a full enumeration      complete, but only outside combat
 --
--- Which one answered is recorded, because the options window shows it per spell
+-- 12.1 changed exactly one of those, and it is worth being precise about which,
+-- because a first pass at this file got it backwards and briefly disabled rung 1.
+--
+--   ENUMERATING auras is refused in combat. GetUnitAuras and the index-based reads
+--   throw, so rung 3 is out of combat only - which it already was.
+--
+--   Looking up ONE known spell id is still served, in combat, returning a plain
+--   arithmetic-safe table. Rung 1 is unaffected.
+--
+-- The distinction is easy to lose because both failures were assumed to be the same
+-- restriction. Confirmed on live by watching a Frost Mage's Icicles - read through
+-- exactly this call - track correctly during a fight, which is the only situation
+-- Icicles exist in at all.
+--
+-- The unknown state above is what kept this safe while that was unclear. A refused
+-- read returns nil, which this file treats as "withholding" rather than "absent", so
+-- alerts stand down instead of firing wrongly.
+--
+-- C_CooldownViewer was measured in and out of combat and the results are identical:
+-- no throws, no secrets, spellID plain. The catch that must not be hidden is that it
+-- is USER-CONFIGURED - it only knows what that player tracks - so a spell absent from
+-- their Cooldown Manager yields unknown, and the options window has to say so per
+-- spell rather than showing a silent nothing. It also carries NO stack count: a
+-- TrackedBuff entry has no `applications` field and its `charges` is a boolean, so
+-- anything counting stacks must use rung 1.
+--
+-- Which rung answered is recorded, because the options window shows it per spell
 -- and "why is this not firing in raids" is otherwise unanswerable.
 --------------------------------------------------------------------------------
 
@@ -594,6 +620,9 @@ function NBA.ScanAuras(unit)
 
     local out, seen, skipped = {}, {}, 0
 
+    -- api121-ok: this is the options window's "what is on me right now" list, used to
+    -- pick a spell. A settings panel cannot be open in combat, so the enumeration
+    -- below always answers. Nothing here drives an alert.
     for _, filter in ipairs({ "HELPFUL", "HARMFUL" }) do
         local ok, auras = pcall(UA.GetUnitAuras, unit, filter, 60)
         if ok and NBA.Walkable(auras) then
@@ -663,6 +692,9 @@ local function ScanMap(unit)
     if cached ~= nil then return cached or nil end
 
     local map
+    -- api121-ok: NBA.AurasAreSecret() at the top of this function returns true in
+    -- combat on 12.1, so this enumeration is unreachable during a fight. That guard
+    -- is the fix; this marker only records that it was checked rather than missed.
     for _, filter in ipairs({ "HELPFUL", "HARMFUL" }) do
         local ok, auras = pcall(UA.GetUnitAuras, unit, filter, 60)
         if ok and NBA.Walkable(auras) then
@@ -740,6 +772,18 @@ local function ResolveAura(a)
     --    aura they apply carries a different one - so this lookup can answer nil for
     --    a readable spell that is genuinely up under another number. Concluding
     --    "absent" here would make every alert built that way permanently silent.
+    --    12.1 does NOT break this path, and a version of this file briefly claimed it
+    --    did. The restriction that patch added is on ENUMERATING auras - GetUnitAuras
+    --    and the index-based reads throw in combat. A targeted lookup by spell id is
+    --    still served, and still returns a plain, arithmetic-safe table. Confirmed on
+    --    live by watching a Frost Mage's Icicles track correctly mid-fight, which is
+    --    the only place Icicles can be observed at all.
+    --
+    --    Gating this on out-of-combat, as an earlier build did, is therefore a
+    --    regression rather than a safety measure: it discards the most accurate
+    --    source available and falls through to the Cooldown Manager, which only knows
+    --    the spells that player happens to track.
+    -- api121-ok: by-id lookups are served in combat; it is enumeration that is not.
     local readable = NBA.SpellIsReadable(spellID)
     local directSaysAbsent = false
     if HAS.bySpellID and readable ~= false then
@@ -799,6 +843,10 @@ end
 -- The second is the interesting one, because it may well answer for spells the first
 -- will not. If neither will say, the answer is unknown, and unknown stands down like
 -- every other unknown in this file.
+-- api121-ok: this read returns nil in combat, and nil is exactly the right answer
+-- here. It falls through to the display-count test and, failing that, to unknown -
+-- which stands down. The call is left in place rather than gated because out of
+-- combat it is the most accurate of the three, and in combat it cannot mislead.
 local function StacksAtLeast(unit, instanceID, want, aura)
     local n = aura and Plain(aura.applications)
     if n == nil and instanceID ~= nil and UA.GetAuraDataByAuraInstanceID then
@@ -938,10 +986,15 @@ local lastAuraEvent = 0
 -- always consumed exactly once.
 local changedAuras = {}
 
+-- Every use of the instance id in here goes through Plain() first, and for two
+-- separate reasons: it is COMPARED against the last one, and it is CONCATENATED into
+-- the printed line. On 12.1 a secret id makes both a hard error, so a debugging aid
+-- would have become the crash it was meant to help diagnose.
 local function DebugState(a, s, present, path, instanceID)
+    local pid = Plain(instanceID)
     local was = s.dbgPresent
-    if was == present and s.dbgPath == path and s.dbgInstance == instanceID then return end
-    s.dbgPresent, s.dbgPath, s.dbgInstance = present, path, instanceID
+    if was == present and s.dbgPath == path and s.dbgInstance == pid then return end
+    s.dbgPresent, s.dbgPath, s.dbgInstance = present, path, pid
 
     local answer = (present == true and "|cff55dd55up|r")
                 or (present == false and "|cffdd5555not up|r")
@@ -957,7 +1010,8 @@ local function DebugState(a, s, present, path, instanceID)
                   or " |cff666666(no aura event - idle poll or first look)|r"
     print(("|cff6fc2ffnba|r %s: %s via %s%s%s")
           :format(a.name or "?", answer, path or "?",
-                  instanceID and (" |cff666666#" .. instanceID .. "|r") or "", since))
+                  pid and (" |cff666666#" .. pid .. "|r")
+                      or (instanceID and " |cff666666#secret|r" or ""), since))
 end
 
 local function Fire(a, id, s, kind, instanceID)
@@ -987,30 +1041,50 @@ function Watch:Pass()
             -- not read as a fresh gain for a buff that was up the whole time.
             if present ~= nil then
                 local was         = s.present
-                local wasInstance = s.instanceID
+                local wasInstance = s.plainInstance
                 s.present    = present
                 s.instanceID = instanceID
+                -- The comparable copy is stored SEPARATELY from the real one. The
+                -- real id still goes to Fire(), which only ever hands it onward; the
+                -- plain copy is the only thing this function is allowed to reason
+                -- about, and it is nil whenever the id was secret.
+                local plainInstance = Plain(instanceID)
+                s.plainInstance = plainInstance
 
                 -- A proc landing again while this still believed the last one was up
                 -- produced no edge at all, so nothing fired and the alert looked
-                -- late - or simply never arrived. auraInstanceID is NeverSecret, so
-                -- comparing it is allowed, and a different one is the game telling us
-                -- this is a *new application* rather than the same aura still running.
+                -- late - or simply never arrived. A different instance id is the game
+                -- telling us this is a *new application* rather than the same aura
+                -- still running.
                 --
                 -- That is the difference between "the buff is up" and "the buff just
                 -- procced", and for anything that refreshes itself mid-fight only the
                 -- second one is the thing being waited for. The re-fire is still
                 -- subject to the rearm delay, which is what stops an aura that
                 -- re-applies on every tick from strobing.
-                local reapplied = present and instanceID ~= nil
-                                  and wasInstance ~= nil and instanceID ~= wasInstance
+                --
+                -- The note that used to sit here said auraInstanceID is NeverSecret
+                -- and comparing it is allowed. That stopped being true in 12.1: ids
+                -- arriving by way of the Cooldown Manager ARE secret, and comparing
+                -- two of them is a hard error rather than a false. It threw 282 times
+                -- in a single fight.
+                --
+                -- So re-application is only detected when BOTH ids are plain. When
+                -- either is secret the answer is "cannot tell", which degrades to not
+                -- re-firing - a missed re-fire, never a wrong one.
+                local reapplied = present and plainInstance ~= nil
+                                  and wasInstance ~= nil and plainInstance ~= wasInstance
 
                 -- And the case where even the instance id stays put: the aura was
                 -- named in the last UNIT_AURA as having changed. Opt-in, because on a
                 -- buff that ticks it would fire constantly - which is what the rearm
                 -- delay is for once it is switched on.
-                local changed = present and a.refire and instanceID ~= nil
-                                and changedAuras[instanceID] and true or false
+                --
+                -- Keyed on the plain copy: a secret value cannot index a table at all,
+                -- which is a different error from the comparison above and was thrown
+                -- by the very next line.
+                local changed = present and a.refire and plainInstance ~= nil
+                                and changedAuras[plainInstance] and true or false
 
                 if present and (was ~= true or reapplied or changed) then
                     if a.trigger == "gain" then
@@ -1098,7 +1172,11 @@ function NBA.BridgeReport()
                         or "|cffe0b040cannot tell|r"
             print(("    %s (%d)  %s via %s%s  tracked=%s readable=%s%s")
                   :format(a.name or "?", a.spellID, answer, path or "?",
-                          instanceID and (" #" .. instanceID) or "",
+                          -- Plain, or the id is reported as secret. Formatting one
+                          -- directly is an error, and this is a diagnostic - the last
+                          -- place that should be capable of throwing.
+                          Plain(instanceID) and (" #" .. Plain(instanceID))
+                              or (instanceID and " #secret" or ""),
                           tostring(NBA.CooldownManagerTracks(a.spellID)),
                           tostring(NBA.SpellIsReadable(a.spellID)),
                           NBA.SpellNameCollides(a.spellID)
@@ -1304,8 +1382,9 @@ function NBA.StackProbe()
             if present == true and instanceID ~= nil then
                 any = true
                 local unit = a.unit or "player"
-                print(("  %s (%d) via %s  #%d")
-                      :format(a.name or "?", a.spellID, path or "?", instanceID))
+                print(("  %s (%d) via %s  #%s")
+                      :format(a.name or "?", a.spellID, path or "?",
+                              Plain(instanceID) and tostring(Plain(instanceID)) or "secret"))
 
                 -- The count as a display string, asked at several thresholds. It comes
                 -- back empty below the minimum, so if these are plain then asking with
@@ -1318,6 +1397,7 @@ function NBA.StackProbe()
                 end
 
                 -- And the raw count, which is the other way this could be possible.
+                -- api121-ok: diagnostic output, typed at a chat prompt out of combat.
                 if UA.GetAuraDataByAuraInstanceID then
                     local ok, data = pcall(UA.GetAuraDataByAuraInstanceID, unit, instanceID)
                     print(("      applications  %s")
@@ -1368,7 +1448,12 @@ function Watch:Init()
         if type(updateInfo) == "table"
            and NBA.Walkable(updateInfo.updatedAuraInstanceIDs) then
             for _, auraInstanceID in ipairs(updateInfo.updatedAuraInstanceIDs) do
-                if auraInstanceID ~= nil then changedAuras[auraInstanceID] = true end
+                -- Plain, because this is a table KEY. A secret cannot index a table
+                -- even to write, and the ids in this payload can be secret in combat
+                -- on 12.1. A secret one is simply not recorded: the refire trigger
+                -- then misses that tick rather than the whole handler erroring.
+                local key = Plain(auraInstanceID)
+                if key ~= nil then changedAuras[key] = true end
             end
         end
     end

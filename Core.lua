@@ -82,7 +82,18 @@ NBA.Walkable = Walkable
 -- Whether the client is currently withholding aura data. A mode, not a constant:
 -- it turns on for combat, encounters, keystones and rated pvp and off again
 -- afterwards, so nothing may cache the answer.
+-- Read as "can this addon get a truthful answer about an aura right now", which is
+-- what every caller actually wants to know before deciding whether to enumerate.
+--
+-- Combat is checked FIRST and on its own, ahead of asking the client anything. On
+-- 12.1 aura reads are refused outright while an addon is tainted, and every addon is
+-- tainted by definition - so in combat the answer is no, whatever C_Secrets says
+-- about secrecy. Relying on ShouldAurasBeSecret alone would be trusting a related
+-- but different question: one is about whether values are masked, the other about
+-- whether the call is served at all. Measured in the open world, not just in
+-- instances, so there is no "only in raids" exemption to lean on either.
 function NBA.AurasAreSecret()
+    if InCombatLockdown() then return true end
     if not C_Secrets then return false end
     local ok, secret = pcall(C_Secrets.ShouldAurasBeSecret)
     if not ok then return false end

@@ -321,9 +321,17 @@ local function ApplyStacks(f, a, instanceID)
     f.stacks:Hide()
 end
 
+-- The instance id is only ever COMPARED here, to avoid rebinding a duration that is
+-- already bound. On 12.1 an id arriving by way of the Cooldown Manager is secret, and
+-- comparing two secrets is a hard error - so the comparison runs on plain copies.
+--
+-- A secret id therefore compares as nil-to-nil and skips the rebind. That is the
+-- right way round: the binding it would redo is the one already showing the correct
+-- aura, and a missed rebind costs nothing visible, while an error costs the alert.
 local function ApplyAuraExtras(f, a, instanceID)
-    if f.boundInstance ~= instanceID then
-        f.boundInstance = instanceID
+    local pid = NBA.Plain(instanceID)
+    if f.boundInstance ~= pid then
+        f.boundInstance = pid
         BindAura(f, a, instanceID)
     end
     ApplyStacks(f, a, instanceID)

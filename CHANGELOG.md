@@ -1,5 +1,57 @@
 # Changelog
 
+## 1.0.5
+
+- Now built for patch 12.1 only. 12.1 is live, and listing the previous patch
+  alongside it claimed support for a client nobody is on any more.
+
+## 1.0.4
+
+**Fixed: a stream of Lua errors during combat, and alerts dying with them.**
+
+On 12.1 an aura instance id that arrives by way of the Cooldown Manager is a **secret
+number**. A secret can be passed along and handed to a widget, but it cannot be
+compared, concatenated, formatted, or used as a table key — each of those is a hard
+error rather than a false or a blank. This addon did all four.
+
+One fight produced 282 errors from a single line.
+
+- **Re-application detection** compared the current instance id against the previous
+  one. It now compares plain copies, and when either is secret the answer is "cannot
+  tell" — which skips the re-fire. A missed re-fire, never a wrong one.
+- **The refire trigger** used the instance id as a table key, in both directions.
+  Secret ids are no longer recorded, so that tick is missed rather than the whole
+  aura handler dying.
+- **The duration binding** compared ids to avoid rebinding what was already bound.
+  Now compares plain copies; a secret id skips a rebind that would have re-shown the
+  same aura anyway.
+- **The debug line and both diagnostics** concatenated the id straight into text.
+  They print `#secret` instead — a diagnostic being the thing that crashes is the
+  worst possible failure.
+
+## 1.0.3 (not released separately - folded into 1.0.4)
+
+**Patch 12.1 housekeeping. Alerts were not broken by 12.1 — this closes one real gap
+and corrects the notes around it.**
+
+12.1 refuses to **enumerate** auras for an addon in combat. Looking up **one known
+spell id** is still served, still in combat, and still comes back as a plain
+arithmetic-safe value. This addon's primary path is the by-id lookup, so alerts
+carried on working through fights.
+
+- **Enumeration is now blocked in combat** at the shared guard rather than at each
+  call site. That path was already out-of-combat only in practice; now it is enforced
+  in one place, so a future caller cannot reintroduce it by accident.
+- Corrected the notes describing which reads survive 12.1. An earlier draft of this
+  release had the distinction backwards and disabled the by-id lookup during combat —
+  that would have discarded the most accurate source available and fallen through to
+  the Cooldown Manager, which only knows the spells you personally track. It was
+  caught before release and never shipped.
+
+Worth knowing, and now recorded in the code: the Cooldown Manager carries **no stack
+count**. A tracked-buff entry has no `applications` field and its `charges` is a
+true/false, not a number. Anything counting stacks has to use the by-id lookup.
+
 ## 1.0.2
 
 - **Alerts can no longer be placed during combat**, which matches the rule that a pull
