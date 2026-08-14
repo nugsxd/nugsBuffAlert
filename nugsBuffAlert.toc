@@ -1,8 +1,9 @@
 ## Interface: 120100
 ## Title: nugsBuffAlert
+## Category: nugsAddons
 ## Notes: Text and icon alerts for buffs and procs, placed wherever you want them.|nEach alert is one spell, shown as text, an icon, or both, with an optional sound or spoken cue.|nTells you up front which spells the game will let it read in a raid.|nSupports LibSharedMedia fonts and sounds.|nCreated by nugs.
 ## Author: nugs
-## Version: 1.0.5
+## Version: 1.0.6
 ## IconTexture: Interface\AddOns\nugsBuffAlert\icon
 
 # NOTE: if the addon list shows a blank icon, this BLP is not loading on your
