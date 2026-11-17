@@ -1,0 +1,31 @@
+{
+  "flavors": ["retail"],
+  "globals": {
+    "read": [
+      "GetMinimapShape",
+      "CUSTOM_CLASS_COLORS",
+      "AuraContainerSortMethod",
+      "AuraContainerSortDirection",
+      "LibStub"
+    ],
+    "write": [
+      "nugsAurasDB", "nugsAurasCharDB",
+      "nugsBuffAlertDB", "nugsBuffAlertCharDB",
+      "nugsCastBarsDB", "nugsCastBarsCharDB",
+      "nugsComboBarDB", "nugsComboBarCharDB",
+      "nugsCombatText", "nugsCombatTextDB",
+      "nugsDeathNoteDB",
+      "nugsNotTodayDB", "nugsNotTodayCharDB", "nugsNotTodayAnnounce",
+      "nugsBiSDB", "nugsBiSCharDB", "nugsBiSExportDB",
+      "nugsBossMapDB", "nugsBossMapCharDB", "nugsBossMapToggle", "nugsBossMapEdit",
+      "nugsSuiteDB", "nugsSuiteRegistry",
+      "CooldownPulseDB", "CooldownPulseCharDB",
+      "RaidReadyDB"
+    ]
+  },
+  "diagnostics": {
+    "disable": [
+      "undefined-field"
+    ]
+  }
+}

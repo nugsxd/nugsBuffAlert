@@ -124,17 +124,24 @@ local function BuildFrame(id)
     f.dragLabel:SetPoint("BOTTOM", f, "TOP", 0, 2)
     f.dragLabel:Hide()
 
-    f:SetMovable(true)
-    f:RegisterForDrag("LeftButton")
-    f:SetScript("OnDragStart", function(self)
-        if unlocked then self:StartMoving() end
-    end)
-    f:SetScript("OnDragStop", function(self)
-        self:StopMovingOrSizing()
-        local a = NBA.db.alerts[self.alertID]
-        if a then SavePosition(self, a) end
-        if NBA.RefreshOptions then NBA.RefreshOptions() end
-    end)
+    -- Dragging, from the shared nugsMove.lua. Read the note at the top of that file:
+    -- it asserts that a frame nobody is holding is not moving, rather than closing one
+    -- more route by which a move could be left running.
+    NBA.InstallMove(f, {
+        label = "an alert",
+        -- The mouse belongs to the lock state, not to this call: an alert takes clicks
+        -- only while unlocked, so every click lands in the world the rest of the time.
+        mouse   = false,
+        canMove = function() return unlocked end,
+        -- Runs however the move ended, including when the invariant ended it because
+        -- the mouse-up never arrived - so a drag that ends unusually still saves where
+        -- the alert actually finished.
+        onEnd   = function(self)
+            local a = NBA.db.alerts[self.alertID]
+            if a then SavePosition(self, a) end
+            if NBA.RefreshOptions then NBA.RefreshOptions() end
+        end,
+    })
 
     f.alertID = id
     frames[id] = f

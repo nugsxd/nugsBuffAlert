@@ -77,6 +77,11 @@ function NBA.InitMinimap()
     border:SetPoint("TOPLEFT")
     border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
 
+    -- Drops the drag handler if this is hidden mid-drag. A hidden frame never
+    -- gets OnDragStop, and this one drags from an OnUpdate - so it would go on
+    -- chasing the cursor for the rest of the session.
+    btn:HookScript("OnHide", function(s) s:SetScript("OnUpdate", nil) end)
+
     btn:SetScript("OnDragStart", function(self) self:SetScript("OnUpdate", OnDragUpdate) end)
     btn:SetScript("OnDragStop",  function(self) self:SetScript("OnUpdate", nil) end)
 

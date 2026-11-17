@@ -770,16 +770,10 @@ local function SeedFirstAlert()
     NBA.db.seeded = true
 end
 
-local function InitDB()
-    nugsBuffAlertDB     = nugsBuffAlertDB     or {}
-    nugsBuffAlertCharDB = nugsBuffAlertCharDB or {}
-
-    NBA.db   = nugsBuffAlertDB
-    NBA.char = nugsBuffAlertCharDB
-
-    ApplyDefaults(NBA.db, NBA.defaults)
-    ApplyDefaults(NBA.char, NBA.charDefaults)
-
+-- Top up every alert and repair the order array. Run at login and again whenever a
+-- profile is copied in, because alerts arriving by copy have had exactly the same
+-- chance to be stale or inconsistent as alerts read off disk.
+local function NormaliseAlerts()
     for _, a in pairs(NBA.db.alerts) do
         ApplyAlertDefaults(a)
     end
@@ -794,6 +788,27 @@ local function InitDB()
     for i = #NBA.db.order, 1, -1 do
         if not NBA.db.alerts[NBA.db.order[i]] then table.remove(NBA.db.order, i) end
     end
+
+end
+
+local function InitDB()
+    -- Settings are per character. See nugsProfile.lua for why nothing is linked.
+    NBA.db = NBA.Profile:Init({
+        global   = "nugsBuffAlertDB",
+        defaults = NBA.defaults,
+        onApply  = function()
+            NormaliseAlerts()
+            if NBA.Display and NBA.Display.Rebuild then NBA.Display:Rebuild() end
+            if NBA.Watch and NBA.Watch.Rebuild then NBA.Watch:Rebuild() end
+            if NBA.RefreshOptions then NBA.RefreshOptions() end
+        end,
+    })
+
+    nugsBuffAlertCharDB = nugsBuffAlertCharDB or {}
+    NBA.char = nugsBuffAlertCharDB
+    ApplyDefaults(NBA.char, NBA.charDefaults)
+
+    NormaliseAlerts()
 
     if not NBA.db.seeded and next(NBA.db.alerts) == nil then
         SeedFirstAlert()
@@ -951,7 +966,9 @@ local function RegisterWithSuite()
             NBA.db.minimapHidden = not shown
             NBA.SetMinimapShown(shown)
         end,
-        GetDB      = function() return nugsBuffAlertDB, NBA.EffectiveDefaults() end,
+        -- This character's settings, not the account container.
+        GetDB      = function() return NBA.db, NBA.EffectiveDefaults() end,
+        Profile    = NBA.Profile,
         GetCharDB  = function() return nugsBuffAlertCharDB, NBA.charDefaults end,
         -- Where this button sits is nobody else's business, and the seed flag would
         -- hand an importer a first run they have already had.
@@ -974,6 +991,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
         RegisterWithSuite()
 
     elseif event == "PLAYER_LOGIN" then
+        NBA.Profile:Attach()
         NBA.InitMinimap()
         NBA.Display:Init()
         NBA.Watch:Init()
